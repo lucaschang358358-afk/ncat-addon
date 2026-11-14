@@ -3,18 +3,18 @@ const axios = require("axios");
 
 const TMDB_API_KEY = "fda2e44581f4c02ca5be907cd4a82cbd";
 
-// 準備多個穩定的 CMS API，保證一次吐出多條線路
+// 這裡精選了目前影視站 (包含 MovieFFM) 背後最常用的三大片源庫
 const CMS_APIS = [
-    "https://cj.ffzyapi.com/api.php/provide/vod/", // 非凡資源
-    "https://cj.lzcjy.com/api.php/provide/vod/",   // 量子資源
-    "https://suoniapi.com/api.php/provide/vod/"    // 索尼資源
+    "https://cj.ffzyapi.com/api.php/provide/vod/",     // 非凡資源 (ffm3u8)
+    "https://api.tiankongapi.com/api.php/provide/vod/",// 天空資源 (tkm3u8)
+    "https://ikunzyapi.com/api.php/provide/vod/"       // 愛坤資源 (ikm3u8)
 ];
 
 const manifest = {
-    id: "org.custom.maccms.multi",
-    version: "13.0.0",
-    name: "MacCMS 多源聚合版",
-    description: "聚合多個資源站，保證多條備用線路",
+    id: "org.custom.maccms.nuvio",
+    version: "14.0.0",
+    name: "Nuvio 影視直連增強版",
+    description: "破解防盜鏈，App內秒播 MovieFFM 同款線路",
     resources: ["stream"],
     types: ["movie", "series"],
     idPrefixes: ["tt"],
@@ -35,14 +35,12 @@ async function getChineseTitle(imdbId, type) {
     }
 }
 
-// 核心：同時向多個資料庫發送請求，並彙整所有線路
 async function fetchFromMultipleCMS(title, type, targetEpisode) {
     const streams = [];
     
-    // 平行發送請求到所有 CMS API (提高速度)
     const requests = CMS_APIS.map(apiUrl => {
         const searchUrl = `${apiUrl}?ac=detail&wd=${encodeURIComponent(title)}`;
-        return axios.get(searchUrl, { timeout: 8000 }).catch(err => null); // 忽略斷線的庫
+        return axios.get(searchUrl, { timeout: 8000 }).catch(err => null);
     });
 
     const responses = await Promise.all(requests);
@@ -63,7 +61,6 @@ async function fetchFromMultipleCMS(title, type, targetEpisode) {
             let targetTitle = "";
 
             if (type === "series" && targetEpisode) {
-                // 精準尋找對應的集數
                 for (const epStr of epList) {
                     if (!epStr.includes('$')) continue;
                     const [epName, epUrl] = epStr.split('$');
@@ -74,7 +71,6 @@ async function fetchFromMultipleCMS(title, type, targetEpisode) {
                         break;
                     }
                 }
-                // 容錯機制
                 if (!targetUrl && epList.length >= parseInt(targetEpisode)) {
                     const fallbackStr = epList[parseInt(targetEpisode) - 1];
                     if (fallbackStr && fallbackStr.includes('$')) {
@@ -84,7 +80,6 @@ async function fetchFromMultipleCMS(title, type, targetEpisode) {
                     }
                 }
             } else {
-                // 電影直接取第一集
                 if (epList[0] && epList[0].includes('$')) {
                     const [epName, epUrl] = epList[0].split('$');
                     targetUrl = epUrl;
@@ -92,13 +87,22 @@ async function fetchFromMultipleCMS(title, type, targetEpisode) {
                 }
             }
 
-            // 確認取得 m3u8 後放入選單
             if (targetUrl && targetUrl.includes('.m3u8')) {
                 streams.push({
-                    name: `聚合線路\n${sourceName}`,
+                    name: `Nuvio 直連\n${sourceName}`,
                     title: `${movieData.vod_name} - ${targetTitle}`,
                     url: targetUrl,
-                    behaviorHints: { notWebReady: true }
+                    // 【關鍵修復】告訴 Nuvio App 播放時要帶上偽裝標頭，騙過防盜鏈！
+                    behaviorHints: {
+                        notWebReady: true,
+                        proxyHeaders: {
+                            request: {
+                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+                                "Referer": "https://mvffm.net/",
+                                "Origin": "https://mvffm.net"
+                            }
+                        }
+                    }
                 });
             }
         }
@@ -112,7 +116,6 @@ builder.defineStreamHandler(async ({ type, id }) => {
     const meta = await getChineseTitle(imdbId, type);
     if (!meta) return { streams: [] };
 
-    // 進行多源搜尋
     const streams = await fetchFromMultipleCMS(meta.title, type, episode);
     return { streams };
 });
