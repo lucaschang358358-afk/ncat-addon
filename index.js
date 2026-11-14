@@ -5,29 +5,16 @@ const axios = require("axios");
 const TMDB_API_KEY = "fda2e44581f4c02ca5be907cd4a82cbd";
 const APP_URL = process.env.RENDER_EXTERNAL_URL || "https://ncat-addon.onrender.com";
 
-// 【終極滿血擴充】14 個開源影視庫，榨乾全網資源
+// 只保留唯一確定能順暢直連的資源，極大化搜尋與載入速度
 const CMS_APIS = [
-    "https://cj.ffzyapi.com/api.php/provide/vod/",     // 非凡資源 (ffm3u8)
-    "https://ikunzyapi.com/api.php/provide/vod/",      // 愛坤資源 (ikm3u8)
-    "https://api.tiankongapi.com/api.php/provide/vod/",// 天空資源 (tkm3u8)
-    "https://cj.lzcjy.com/api.php/provide/vod/",       // 量子資源 (lzm3u8)
-    "https://suoniapi.com/api.php/provide/vod/",       // 索尼資源 (snm3u8)
-    "https://api.wmcj8.com/api.php/provide/vod/",      // 完美資源 (wmm3u8)
-    "https://m3u8.apiyhzy.com/api.php/provide/vod/",   // 櫻花資源 (yhm3u8)
-    "https://api.tianjiapi.com/api.php/provide/vod/",  // 天機資源 (tjm3u8)
-    "https://kuaikanzy.net/api.php/provide/vod/",      // 快看資源 (kkm3u8)
-    "https://api.apibdzy.com/api.php/provide/vod/",    // 百度資源 (bdm3u8)
-    "https://www.feisuzyapi.com/api.php/provide/vod/", // 飛速資源 (fsm3u8)
-    "https://api.hongniuzy2.com/api.php/provide/vod/", // 紅牛資源 (hnm3u8)
-    "https://cj.vod21.com/api.php/provide/vod/",       // 21資源 (21m3u8)
-    "https://api.1080zyku.com/inc/apijson.php"         // 1080資源
+    "https://ikunzyapi.com/api.php/provide/vod/"
 ];
 
 const manifest = {
-    id: "org.custom.maccms.proxy",
-    version: "17.0.0",
-    name: "Nuvio 極速直連 - 滿血十源版",
-    description: "十庫聯查，只代理清單不走串流，極速播放",
+    id: "org.custom.nuvio.rapid",
+    version: "18.0.0",
+    name: "Nuvio急速直連",
+    description: "專為 Nuvio 打造的極速直連代理",
     resources: ["stream"],
     types: ["movie", "series"],
     idPrefixes: ["tt"],
@@ -50,8 +37,6 @@ async function getChineseTitle(imdbId, type) {
 
 async function fetchFromMultipleCMS(title, type, targetEpisode) {
     const streams = [];
-    
-    // 平行發送請求到 10 個資料庫
     const requests = CMS_APIS.map(apiUrl => {
         const searchUrl = `${apiUrl}?ac=detail&wd=${encodeURIComponent(title)}`;
         return axios.get(searchUrl, { timeout: 8000 }).catch(() => null);
