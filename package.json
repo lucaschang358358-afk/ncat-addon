@@ -1,4 +1,11 @@
 {
+  "name": "ncat-puppeteer-addon",
+  "version": "5.0.0",
+  "description": "Nuvio Addon with Puppeteer",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
   "dependencies": {
     "stremio-addon-sdk": "^1.0.1",
     "axios": "^1.6.0",
