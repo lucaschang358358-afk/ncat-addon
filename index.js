@@ -4,10 +4,10 @@ const axios = require("axios");
 const TMDB_API_KEY = "fda2e44581f4c02ca5be907cd4a82cbd";
 
 const manifest = {
-    id: "org.custom.movieffm.addon",
-    version: "8.0.0",
-    name: "MovieFFM 全自動多線路聚合",
-    description: "自動依據 Nuvio 搜尋請求，即時抓取 MovieFFM 多條高清播放源",
+    id: "org.custom.movieffm.dynamic",
+    version: "9.0.0",
+    name: "MovieFFM 動態分流播放",
+    description: "根據不同電影與劇集提供正確的串流播放源",
     resources: ["stream"],
     types: ["movie", "series"],
     idPrefixes: ["tt"],
@@ -33,55 +33,34 @@ async function getChineseTitle(imdbId, type) {
     }
 }
 
-// 2. 動態抓取 MovieFFM 資源並生成多線路
-async function fetchMovieFFMStreams(title) {
-    const streams = [];
-    try {
-        console.log(`[MovieFFM 搜尋] 正在為您尋找: ${title}`);
-        
-        // 模擬標準 HTTP 請求去 MovieFFM 搜尋 (這裡對應目標站點的搜尋結構)
-        // 註：若站點有調整搜尋路徑，我們後續可微調這裡的 API 參數
-        const searchUrl = `https://mvffm.net/index.php?s=vod-search&wd=${encodeURIComponent(title)}`;
-        
-        // 為了確保示範能夠立刻看到效果，我們同時為它建構多條基於你剛剛抓包結構的專屬多線路
-        // 這樣當你在 Nuvio 點開時，就會直接出現好幾條不同的畫質線路讓你挑選！
-        
-        streams.push({
-            name: "MovieFFM\nHD 藍光主線路",
-            title: `${title} - 極速秒開 4K 高清`,
-            url: "https://play.xluuss.com/play/xe7Nj4Qd/index.m3u8", // 你剛才成功抓包的那組真實直鏈
+// 2. 影片真實網址對應字典（你之後看哪部片，只要把名稱跟對應的 m3u8 填進來）
+const videoDatabase = {
+    "陷入我们的热恋": [
+        {
+            name: "MovieFFM\n藍光線路",
+            title: "陷入我们的热恋 - 正確播放源",
+            url: "https://play.xluuss.com/play/xe7Nj4Qd/index.m3u8", // 這部片的真實網址
             behaviorHints: {
                 notWebReady: true,
                 proxyHeaders: {
                     request: {
                         "Referer": "https://mvffm.net/",
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
                     }
                 }
             }
-        });
-
-        streams.push({
-            name: "MovieFFM\n備用極速線路",
-            title: `${title} - 穩定防卡頓源`,
-            url: "https://play.xluuss.com/play/7e5J6YYa/index.m3u8",
-            behaviorHints: {
-                notWebReady: true,
-                proxyHeaders: {
-                    request: {
-                        "Referer": "https://mvffm.net/",
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                    }
-                }
-            }
-        });
-
-    } catch (err) {
-        console.error("MovieFFM 解析錯誤:", err.message);
-    }
-
-    return streams;
-}
+        }
+    ],
+    // 如果你要加第二部片，格式如下：
+    // "其他電影名稱": [
+    //     {
+    //         name: "MovieFFM\n藍光線路",
+    //         title: "其他電影名稱 - 播放源",
+    //         url: "你的m3u8網址",
+    //         behaviorHints: { notWebReady: true, proxyHeaders: { request: { "Referer": "https://mvffm.net/" } } }
+    //     }
+    // ]
+};
 
 // 3. 接收 Nuvio 請求
 builder.defineStreamHandler(async ({ type, id }) => {
@@ -92,12 +71,16 @@ builder.defineStreamHandler(async ({ type, id }) => {
         return { streams: [] };
     }
 
-    console.log(`[Nuvio 請求觸發] 片名: ${meta.title}`);
+    console.log(`[Nuvio 請求] 當前查詢片名: ${meta.title}`);
 
-    // 取得多線路清單
-    const streams = await fetchMovieFFMStreams(meta.title);
-    
-    return { streams };
+    // 檢查字典裡有沒有這部片
+    if (videoDatabase[meta.title]) {
+        console.log(`[成功對應] 找到 ${meta.title} 的專屬直鏈`);
+        return { streams: videoDatabase[meta.title] };
+    }
+
+    console.log(`[未收錄] 找不到 ${meta.title} 的對應源`);
+    return { streams: [] };
 });
 
 const port = process.env.PORT || 7000;
