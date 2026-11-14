@@ -5,17 +5,25 @@ const axios = require("axios");
 const TMDB_API_KEY = "fda2e44581f4c02ca5be907cd4a82cbd";
 const APP_URL = process.env.RENDER_EXTERNAL_URL || "https://ncat-addon.onrender.com";
 
+// 【火力全開】擴充至 10 個開源影視庫，確保最大機率抓到最多線路
 const CMS_APIS = [
-    "https://cj.ffzyapi.com/api.php/provide/vod/",
-    "https://ikunzyapi.com/api.php/provide/vod/",
-    "https://api.tiankongapi.com/api.php/provide/vod/"
+    "https://cj.ffzyapi.com/api.php/provide/vod/",     // 非凡資源
+    "https://ikunzyapi.com/api.php/provide/vod/",      // 愛坤資源
+    "https://api.tiankongapi.com/api.php/provide/vod/",// 天空資源
+    "https://cj.lzcjy.com/api.php/provide/vod/",       // 量子資源
+    "https://suoniapi.com/api.php/provide/vod/",       // 索尼資源
+    "https://api.wmcj8.com/api.php/provide/vod/",      // 完美資源
+    "https://m3u8.apiyhzy.com/api.php/provide/vod/",   // 櫻花資源
+    "https://cj.lghzy.com/api.php/provide/vod/",       // 老光棍資源
+    "https://api.tianjiapi.com/api.php/provide/vod/",  // 天機資源
+    "https://kuaikanzy.net/api.php/provide/vod/"       // 快看資源
 ];
 
 const manifest = {
     id: "org.custom.maccms.proxy",
-    version: "16.0.0",
-    name: "Nuvio 極速直連版",
-    description: "只代理清單不走串流，徹底解決 Render 頻寬卡頓",
+    version: "17.0.0",
+    name: "Nuvio 極速直連 - 滿血十源版",
+    description: "十庫聯查，只代理清單不走串流，極速播放",
     resources: ["stream"],
     types: ["movie", "series"],
     idPrefixes: ["tt"],
@@ -38,6 +46,8 @@ async function getChineseTitle(imdbId, type) {
 
 async function fetchFromMultipleCMS(title, type, targetEpisode) {
     const streams = [];
+    
+    // 平行發送請求到 10 個資料庫
     const requests = CMS_APIS.map(apiUrl => {
         const searchUrl = `${apiUrl}?ac=detail&wd=${encodeURIComponent(title)}`;
         return axios.get(searchUrl, { timeout: 8000 }).catch(() => null);
@@ -80,7 +90,6 @@ async function fetchFromMultipleCMS(title, type, targetEpisode) {
             }
 
             if (targetUrl && targetUrl.includes('.m3u8')) {
-                // 將 m3u8 丟給我們的代理伺服器解析
                 const proxyUrl = `${APP_URL}/proxy?url=${encodeURIComponent(targetUrl)}`;
                 streams.push({
                     name: `極速直連\n${sourceName}`,
@@ -102,9 +111,6 @@ builder.defineStreamHandler(async ({ type, id }) => {
     return { streams };
 });
 
-// ==========================================
-// 輕量級解析代理伺服器 (不下載影片，只改寫網址)
-// ==========================================
 const app = express();
 
 app.use((req, res, next) => {
@@ -115,8 +121,6 @@ app.use((req, res, next) => {
 app.get('/proxy', async (req, res) => {
     const targetUrl = req.query.url;
     if (!targetUrl) return res.status(400).send("No URL");
-
-    console.log(`[解析清單] 正在獲取播放列表: ${targetUrl.split('/').pop()}`);
 
     try {
         const response = await axios({
@@ -141,13 +145,9 @@ app.get('/proxy', async (req, res) => {
                     absoluteUrl = trimmed.startsWith('/') ? new URL(trimmed, targetUrl).href : baseUrl + trimmed;
                 }
                 
-                // 如果裡面還包著子 m3u8，繼續讓 Render 去破解
                 if (absoluteUrl.includes('.m3u8')) {
                     return `${APP_URL}/proxy?url=${encodeURIComponent(absoluteUrl)}`;
                 }
-                
-                // 【關鍵】如果是 .ts 影片碎片，直接回傳真實網址給 Nuvio！
-                // 不經過 Render 伺服器，完美避開頻寬限制！
                 return absoluteUrl;
             }
             return line;
@@ -155,7 +155,6 @@ app.get('/proxy', async (req, res) => {
         
         res.send(rewritten);
     } catch (err) {
-        console.error("[解析失敗]:", err.message);
         res.status(500).send("Proxy Error");
     }
 });
