@@ -7,12 +7,23 @@ const APP_URL = process.env.RENDER_EXTERNAL_URL || "https://ncat-addon.onrender.
 
 // 精選過的高穩定、高連線率黃金 CMS 採集源（剔除會卡死或死鏈的站點）
 const CMS_APIS = [
-    "https://ikunzyapi.com/api.php/provide/vod/",   // 愛坤源（你測試過唯一順暢的黃金首選）
-    "https://api.olemovapi.com/api.php/provide/vod/", // Olevom 歐樂源
-    "https://suoniapi.com/api.php/provide/vod/",      // 索尼源
-    "https://cj.lziapi.com/api.php/provide/vod/",     // 量子源
-    "https://bfzyapi.com/api.php/provide/vod/"        // 暴風源
-];
+    // --- 頂級主力源（速度最快、穩定度最高）---
+    "https://ikunzyapi.com/api.php/provide/vod/",     // 愛坤源
+    "https://api.olemovapi.com/api.php/provide/vod/",   // 歐樂源
+    "https://suoniapi.com/api.php/provide/vod/",        // 索尼源
+    
+    // --- 龐大資料庫源（片量極多、更新快）---
+    "https://cj.lziapi.com/api.php/provide/vod/",       // 量子源
+    "https://bfzyapi.com/api.php/provide/vod/",       // 暴風源
+    "https://gzyunapi.com/api.php/provide/vod/",       // 光速源
+    "https://ffzyapi.com/api.php/provide/vod/",       // 非凡源
+    "https://kczyapi.com/api.php/provide/vod/",       // 快車源
+    "https://sdzyapi.com/api.php/provide/vod/",       // 神盾源
+    
+    // --- 備用與特規源 ---
+    "https://zy.yilans.org/api.php/provide/vod/",     // 伊蘭源
+    "https://api.wujinapi.me/api.php/provide/vod/"     // 無盡源
+]
 
 const manifest = {
     id: "org.custom.nuvio.optimized.sources",
