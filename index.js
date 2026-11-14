@@ -5,21 +5,20 @@ const axios = require("axios");
 const TMDB_API_KEY = "fda2e44581f4c02ca5be907cd4a82cbd";
 const APP_URL = process.env.RENDER_EXTERNAL_URL || "https://ncat-addon.onrender.com";
 
-// 擴充多個高效能的公開蘋果 CMS 資源站 API，維持你原本的架構，同時極大化播放線路
+// 精選過的高穩定、高連線率黃金 CMS 採集源（剔除會卡死或死鏈的站點）
 const CMS_APIS = [
-    "https://ikunzyapi.com/api.php/provide/vod/",
-    "https://api.olemovapi.com/api.php/provide/vod/",
-    "https://suoniapi.com/api.php/provide/vod/",
-    "https://cj.lziapi.com/api.php/provide/vod/",
-    "https://bfzyapi.com/api.php/provide/vod/",
-    "https://gzyunapi.com/api.php/provide/vod/"
+    "https://ikunzyapi.com/api.php/provide/vod/",   // 愛坤源（你測試過唯一順暢的黃金首選）
+    "https://api.olemovapi.com/api.php/provide/vod/", // Olevom 歐樂源
+    "https://suoniapi.com/api.php/provide/vod/",      // 索尼源
+    "https://cj.lziapi.com/api.php/provide/vod/",     // 量子源
+    "https://bfzyapi.com/api.php/provide/vod/"        // 暴風源
 ];
 
 const manifest = {
-    id: "org.custom.nuvio.multisource.clean",
-    version: "30.0.0",
-    name: "Nuvio 多源極速直連",
-    description: "維持原汁原味架構的多源 CMS 聚合播放源",
+    id: "org.custom.nuvio.optimized.sources",
+    version: "35.0.0",
+    name: "Nuvio 精選高速多源",
+    description: "過濾無效死鏈，僅保留高效穩定頻道的 Nuvio 專用聚合源",
     resources: ["stream"],
     types: ["movie", "series"],
     idPrefixes: ["tt"],
@@ -40,12 +39,13 @@ async function getChineseTitle(imdbId, type) {
     }
 }
 
-async function fetchFromMultipleCMS(title, type, targetEpisode) {
+async function fetchFromOptimizedCMS(title, type, targetEpisode) {
     const streams = [];
     
+    // 平行發送請求，並縮短超時限制，確保不健康的站點不會拖慢整體速度
     const requests = CMS_APIS.map(apiUrl => {
         const searchUrl = `${apiUrl}?ac=detail&wd=${encodeURIComponent(title)}`;
-        return axios.get(searchUrl, { timeout: 8000 }).catch(() => null);
+        return axios.get(searchUrl, { timeout: 5000 }).catch(() => null);
     });
 
     const responses = await Promise.all(requests);
@@ -86,10 +86,11 @@ async function fetchFromMultipleCMS(title, type, targetEpisode) {
                     }
                 }
 
+                // 嚴格過濾：必須包含 m3u8 格式才納入清單
                 if (targetUrl && targetUrl.includes('.m3u8')) {
                     const proxyUrl = `${APP_URL}/proxy?url=${encodeURIComponent(targetUrl)}`;
                     streams.push({
-                        name: `聚合源 #${apiIndex + 1}\n${sourceName}`,
+                        name: `精選源 #${apiIndex + 1}\n${sourceName}`,
                         title: `${movieData.vod_name} - ${targetTitle}`,
                         url: proxyUrl
                     });
@@ -106,7 +107,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
     const meta = await getChineseTitle(imdbId, type);
     if (!meta) return { streams: [] };
 
-    const streams = await fetchFromMultipleCMS(meta.title, type, episode);
+    const streams = await fetchFromOptimizedCMS(meta.title, type, episode);
     return { streams };
 });
 
@@ -161,4 +162,4 @@ app.get('/proxy', async (req, res) => {
 app.use('/', getRouter(builder.getInterface()));
 
 const port = process.env.PORT || 7000;
-app.listen(port, () => console.log(`Clean CMS Proxy Engine is running on port ${port}`));
+app.listen(port, () => console.log(`Optimized CMS Proxy Engine is running on port ${port}`));
