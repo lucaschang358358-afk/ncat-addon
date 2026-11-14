@@ -5,7 +5,7 @@ const axios = require("axios");
 const TMDB_API_KEY = "fda2e44581f4c02ca5be907cd4a82cbd";
 const APP_URL = process.env.RENDER_EXTERNAL_URL || "https://ncat-addon.onrender.com";
 
-// 擴充多個高效能的公開蘋果 CMS 資源站 API，極大化你的播放線路與資源數量
+// 擴充多個高效能的公開蘋果 CMS 資源站 API，維持你原本的架構，同時極大化播放線路
 const CMS_APIS = [
     "https://ikunzyapi.com/api.php/provide/vod/",
     "https://api.olemovapi.com/api.php/provide/vod/",
@@ -16,10 +16,10 @@ const CMS_APIS = [
 ];
 
 const manifest = {
-    id: "org.custom.nuvio.multisource",
-    version: "25.0.0",
-    name: "Nuvio 多源聚合急速直連",
-    description: "聚合多個頂級 CMS 資源站，為 Nuvio 提供豐富且秒開的播放線路",
+    id: "org.custom.nuvio.multisource.clean",
+    version: "30.0.0",
+    name: "Nuvio 多源極速直連",
+    description: "維持原汁原味架構的多源 CMS 聚合播放源",
     resources: ["stream"],
     types: ["movie", "series"],
     idPrefixes: ["tt"],
@@ -43,10 +43,9 @@ async function getChineseTitle(imdbId, type) {
 async function fetchFromMultipleCMS(title, type, targetEpisode) {
     const streams = [];
     
-    // 同時向多個 CMS 資源站發送非同步查詢，兼顧「線路多」與「速度快」
     const requests = CMS_APIS.map(apiUrl => {
         const searchUrl = `${apiUrl}?ac=detail&wd=${encodeURIComponent(title)}`;
-        return axios.get(searchUrl, { timeout: 6000 }).catch(() => null);
+        return axios.get(searchUrl, { timeout: 8000 }).catch(() => null);
     });
 
     const responses = await Promise.all(requests);
@@ -54,11 +53,11 @@ async function fetchFromMultipleCMS(title, type, targetEpisode) {
     responses.forEach((response, apiIndex) => {
         if (!response || !response.data || !response.data.list || response.data.list.length === 0) return;
 
-        // 可能會有多筆搜尋結果，我們取前 2 筆最相關的影片
         const matchedMovies = response.data.list.slice(0, 2);
 
         matchedMovies.forEach(movieData => {
-            const sources = (movieData.vod_play_from || "").split('$$$'); const urlsGroups = (movieData.vod_play_url \vert{}\vert{} "").split('$$$');
+            const sources = (movieData.vod_play_from || "").split('$$$');
+            const urlsGroups = (movieData.vod_play_url || "").split('$$$');
 
             for (let i = 0; i < sources.length; i++) {
                 const sourceName = sources[i];
@@ -89,10 +88,8 @@ async function fetchFromMultipleCMS(title, type, targetEpisode) {
 
                 if (targetUrl && targetUrl.includes('.m3u8')) {
                     const proxyUrl = `${APP_URL}/proxy?url=${encodeURIComponent(targetUrl)}`;
-                    
-                    // 用來源站編號與播放線路名稱組合作為標籤，在 Nuvio 裡一目了然
                     streams.push({
-                        name: `多源聚合 #${apiIndex + 1}\n${sourceName}`,
+                        name: `聚合源 #${apiIndex + 1}\n${sourceName}`,
                         title: `${movieData.vod_name} - ${targetTitle}`,
                         url: proxyUrl
                     });
@@ -101,7 +98,6 @@ async function fetchFromMultipleCMS(title, type, targetEpisode) {
         });
     });
 
-    console.log(`[聚合完成] 成功為「${title}」找到 ${streams.length} 個有效播放源`);
     return streams;
 }
 
@@ -134,3 +130,35 @@ app.get('/proxy', async (req, res) => {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
                 "Referer": "https://mvffm.net/"
             }
+        });
+
+        res.set("Content-Type", "application/vnd.apple.mpegurl");
+        const lines = response.data.split('\n');
+        const baseUrl = targetUrl.substring(0, targetUrl.lastIndexOf('/') + 1);
+        
+        const rewritten = lines.map(line => {
+            const trimmed = line.trim();
+            if (trimmed && !trimmed.startsWith('#')) {
+                let absoluteUrl = trimmed;
+                if (!trimmed.startsWith('http')) {
+                    absoluteUrl = trimmed.startsWith('/') ? new URL(trimmed, targetUrl).href : baseUrl + trimmed;
+                }
+                
+                if (absoluteUrl.includes('.m3u8')) {
+                    return `${APP_URL}/proxy?url=${encodeURIComponent(absoluteUrl)}`;
+                }
+                return absoluteUrl;
+            }
+            return line;
+        }).join('\n');
+        
+        res.send(rewritten);
+    } catch (err) {
+        res.status(500).send("Proxy Error");
+    }
+});
+
+app.use('/', getRouter(builder.getInterface()));
+
+const port = process.env.PORT || 7000;
+app.listen(port, () => console.log(`Clean CMS Proxy Engine is running on port ${port}`));
