@@ -1,14 +1,18 @@
 const { addonBuilder, serveHTTP } = require("stremio-addon-sdk");
 const axios = require("axios");
-const cheerio = require("cheerio");
 
 const TMDB_API_KEY = "fda2e44581f4c02ca5be907cd4a82cbd";
 
+// 這裡填寫蘋果CMS (MacCMS) 的公開 API 介面
+// 通常是網域後面加上 /api.php/provide/vod/
+// 你可以隨時替換成其他支援 MacCMS 的採集源 API
+const CMS_API_URL = "https://mvffm.net/api.php/provide/vod/"; 
+
 const manifest = {
-    id: "org.custom.movieffm.real",
-    version: "10.0.0",
-    name: "MovieFFM 真實動態抓取",
-    description: "真正透過搜尋引擎即時抓取 MovieFFM 資源",
+    id: "org.custom.maccms.api",
+    version: "11.0.0",
+    name: "MacCMS API 影視直連",
+    description: "透過標準蘋果CMS API獲取高畫質直鏈",
     resources: ["stream"],
     types: ["movie", "series"],
     idPrefixes: ["tt"],
@@ -17,7 +21,7 @@ const manifest = {
 
 const builder = new addonBuilder(manifest);
 
-// 1. TMDB 片名轉換
+// TMDB 片名轉換
 async function getChineseTitle(imdbId, type) {
     try {
         const url = `https://api.themoviedb.org/3/find/${imdbId}?api_key=${TMDB_API_KEY}&external_source=imdb_id&language=zh-CN`;
@@ -29,74 +33,65 @@ async function getChineseTitle(imdbId, type) {
             year: (result.release_date || result.first_air_date || "").split("-")[0]
         };
     } catch (err) {
-        console.error("TMDB 轉換失敗:", err.message);
         return null;
     }
 }
 
-// 2. 核心功能：去 MovieFFM 真正搜尋並抓出 m3u8
-async function scrapeMovieFFM(title) {
+// 核心：透過 JSON API 獲取資料，絕不碰 HTML
+async function fetchFromCMSAPI(title) {
+    const streams = [];
     try {
-        console.log(`[真實爬蟲] 開始在 MovieFFM 搜尋: ${title}`);
-        const searchUrl = `https://mvffm.net/?s=${encodeURIComponent(title)}`;
+        console.log(`[CMS API] 開始搜尋: ${title}`);
         
-        // 發送搜尋請求
-        const searchRes = await axios.get(searchUrl, {
-            headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" }
-        });
-        const $ = cheerio.load(searchRes.data);
-
-        let movieUrl = null;
-
-        // 尋找搜尋結果中的第一部電影網址
-        $('a').each((i, el) => {
-            const href = $(el).attr('href');
-            if (href && (href.includes('/movies/') || href.includes('/tvshows/')) && !movieUrl) {
-                movieUrl = href;
-            }
-        });
-
-        if (!movieUrl) {
-            console.log(`[爬蟲結果] 找不到 ${title} 的電影頁面`);
-            return null;
-        }
-
-        console.log(`[爬蟲結果] 找到電影頁面: ${movieUrl}，正在進入解析...`);
-
-        // 進入該電影頁面
-        const movieRes = await axios.get(movieUrl, {
+        // 蘋果 CMS 標準搜尋格式： ?ac=detail&wd=片名
+        const searchUrl = `${CMS_API_URL}?ac=detail&wd=${encodeURIComponent(title)}`;
+        
+        const response = await axios.get(searchUrl, {
+            timeout: 10000,
             headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" }
         });
 
-        const html = movieRes.data;
-        const decodedHtml = decodeURIComponent(html); // 預防網址被編碼
+        const data = response.data;
         
-        // 透過正規表達式尋找網頁原始碼內隱藏的 m3u8 直鏈 或 play.xluuss.com 網址
-        let realM3u8 = null;
-        const m3u8Match = decodedHtml.match(/(https:\/\/[^"']+\.m3u8)/i) || html.match(/(https:\/\/[^"']+\.m3u8)/i);
-        const xluussMatch = decodedHtml.match(/(https:\/\/[^"']+xluuss[^"']+)/i) || html.match(/(https:\/\/[^"']+xluuss[^"']+)/i);
-
-        if (m3u8Match) {
-            realM3u8 = m3u8Match[1].replace(/\\/g, ''); // 清理轉義字元
-        } else if (xluussMatch) {
-            realM3u8 = xluussMatch[1].replace(/\\/g, '');
+        // 檢查 API 是否有回傳資料 (MacCMS 標準格式為 data.list)
+        if (!data || !data.list || data.list.length === 0) {
+            console.log(`[API 回應] 找不到 ${title} 的相關資料`);
+            return streams;
         }
 
-        if (realM3u8) {
-            console.log(`[爬蟲成功] 成功抓取真實播放源: ${realM3u8}`);
-            return realM3u8;
-        } else {
-            console.log(`[爬蟲失敗] 進入了頁面，但找不到 m3u8 連結`);
-            return null;
-        }
+        const movieData = data.list[0];
+        console.log(`[API 成功] 找到影片: ${movieData.vod_name}`);
 
+        // MacCMS 的播放源格式通常長這樣："藍光$https://...m3u8#備用$https://...m3u8"
+        if (movieData.vod_play_url) {
+            const playList = movieData.vod_play_url.split('#');
+            
+            playList.forEach(play => {
+                const parts = play.split('$');
+                if (parts.length >= 2) {
+                    const sourceName = parts[0];
+                    const url = parts[1];
+                    
+                    // 只挑選 m3u8 資源
+                    if (url.includes('.m3u8')) {
+                        streams.push({
+                            name: `CMS 線路\n${sourceName}`,
+                            title: `${movieData.vod_name} - ${sourceName}`,
+                            url: url,
+                            behaviorHints: {
+                                notWebReady: true
+                            }
+                        });
+                    }
+                }
+            });
+        }
     } catch (err) {
-        console.error("[爬蟲發生錯誤]:", err.message);
-        return null;
+        console.error(`[API 錯誤]:`, err.message);
     }
+    return streams;
 }
 
-// 3. 接收 Nuvio 請求
 builder.defineStreamHandler(async ({ type, id }) => {
     const [imdbId] = id.split(":");
     
@@ -105,33 +100,10 @@ builder.defineStreamHandler(async ({ type, id }) => {
         return { streams: [] };
     }
 
-    console.log(`[Nuvio 請求觸發] 準備解析: ${meta.title}`);
+    console.log(`[Nuvio 請求] 準備解析: ${meta.title}`);
 
-    // 呼叫真實爬蟲
-    const realUrl = await scrapeMovieFFM(meta.title);
-    
-    if (realUrl) {
-        return {
-            streams: [
-                {
-                    name: "MovieFFM\n真實抓取源",
-                    title: `${meta.title} - 自動解析線路`,
-                    url: realUrl,
-                    behaviorHints: {
-                        notWebReady: true,
-                        proxyHeaders: {
-                            request: {
-                                "Referer": "https://mvffm.net/",
-                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-                            }
-                        }
-                    }
-                }
-            ]
-        };
-    }
-
-    return { streams: [] };
+    const streams = await fetchFromCMSAPI(meta.title);
+    return { streams };
 });
 
 const port = process.env.PORT || 7000;
