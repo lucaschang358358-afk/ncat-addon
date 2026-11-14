@@ -1,15 +1,13 @@
 {
-  "name": "ncat-puppeteer-addon",
-  "version": "5.0.0",
-  "description": "Nuvio Addon with Puppeteer",
+  "name": "movieffm-addon",
+  "version": "8.0.0",
+  "description": "MovieFFM Multistream Stremio Addon",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "stremio-addon-sdk": "^1.0.1",
     "axios": "^1.6.0",
-    "puppeteer-core": "^21.0.0",
-    "@sparticuz/chromium": "^119.0.0"
+    "stremio-addon-sdk": "^1.0.1"
   }
 }
