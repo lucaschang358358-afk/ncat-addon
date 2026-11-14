@@ -1,14 +1,14 @@
 {
-  "name": "movieffm-real-scraper",
-  "version": "10.0.0",
-  "description": "真正動態爬取 MovieFFM 的 Nuvio 外掛",
+  "name": "nuvio-proxy-engine",
+  "version": "15.0.0",
+  "description": "繞過地區限制與防盜鏈的影片中繼代理",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "axios": "^1.6.0",
-    "cheerio": "^1.0.0",
+    "express": "^4.18.2",
     "stremio-addon-sdk": "^1.0.1"
   }
 }
