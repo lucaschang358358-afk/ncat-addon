@@ -1,7 +1,7 @@
 const { addonBuilder, serveHTTP } = require("stremio-addon-sdk");
 const axios = require("axios");
 
-// 已填入你的 TMDB API Key
+// 你的 TMDB API Key
 const TMDB_API_KEY = "fda2e44581f4c02ca5be907cd4a82cbd";
 
 const manifest = {
@@ -11,7 +11,8 @@ const manifest = {
     description: "為 Nuvio 提供中文影視資源解析",
     resources: ["stream"],
     types: ["movie", "series"],
-    idPrefixes: ["tt"]
+    idPrefixes: ["tt"],
+    catalogs: [] // <-- 加上這行，解決 manifest.catalogs 必須是陣列的錯誤
 };
 
 const builder = new addonBuilder(manifest);
@@ -32,8 +33,6 @@ async function getChineseTitle(imdbId, type) {
 }
 
 async function fetchFromNcat(title, year, type, season, episode) {
-    // 這裡之後補上抓取網飛貓 API 的邏輯
-    // 目前先回傳測試用的範例連結確認流程通暢
     return [
         {
             name: "網飛貓\n1080P",
@@ -52,6 +51,5 @@ builder.defineStreamHandler(async ({ type, id }) => {
     return { streams };
 });
 
-// Render 會自動帶入 process.env.PORT，本地則用 7000
 const port = process.env.PORT || 7000;
 serveHTTP(builder.getInterface(), { port });
