@@ -6,7 +6,7 @@ const TMDB_API_KEY = "fda2e44581f4c02ca5be907cd4a82cbd";
 // 這裡填寫蘋果CMS (MacCMS) 的公開 API 介面
 // 通常是網域後面加上 /api.php/provide/vod/
 // 你可以隨時替換成其他支援 MacCMS 的採集源 API
-const CMS_API_URL = "https://mvffm.net/api.php/provide/vod/"; 
+const CMS_API_URL = "[https://cj.ffzyapi.com/api.php/provide/vod/](https://cj.ffzyapi.com/api.php/provide/vod/)";
 
 const manifest = {
     id: "org.custom.maccms.api",
