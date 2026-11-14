@@ -1,20 +1,22 @@
-const { addonBuilder, serveHTTP } = require("stremio-addon-sdk");
+const express = require("express");
+const { addonBuilder, getRouter } = require("stremio-addon-sdk");
 const axios = require("axios");
 
 const TMDB_API_KEY = "fda2e44581f4c02ca5be907cd4a82cbd";
+// 你的 Render 專屬網址，作為中繼站
+const APP_URL = process.env.RENDER_EXTERNAL_URL || "https://ncat-addon.onrender.com";
 
-// 這裡精選了目前影視站 (包含 MovieFFM) 背後最常用的三大片源庫
 const CMS_APIS = [
-    "https://cj.ffzyapi.com/api.php/provide/vod/",     // 非凡資源 (ffm3u8)
-    "https://api.tiankongapi.com/api.php/provide/vod/",// 天空資源 (tkm3u8)
-    "https://ikunzyapi.com/api.php/provide/vod/"       // 愛坤資源 (ikm3u8)
+    "https://cj.ffzyapi.com/api.php/provide/vod/",
+    "https://ikunzyapi.com/api.php/provide/vod/",
+    "https://api.tiankongapi.com/api.php/provide/vod/"
 ];
 
 const manifest = {
-    id: "org.custom.maccms.nuvio",
-    version: "14.0.0",
-    name: "Nuvio 影視直連增強版",
-    description: "破解防盜鏈，App內秒播 MovieFFM 同款線路",
+    id: "org.custom.maccms.proxy",
+    version: "15.0.0",
+    name: "Nuvio 雲端中繼加速",
+    description: "透過 Render 中繼影片，解決無限轉圈與 IP 阻擋",
     resources: ["stream"],
     types: ["movie", "series"],
     idPrefixes: ["tt"],
@@ -37,10 +39,9 @@ async function getChineseTitle(imdbId, type) {
 
 async function fetchFromMultipleCMS(title, type, targetEpisode) {
     const streams = [];
-    
     const requests = CMS_APIS.map(apiUrl => {
         const searchUrl = `${apiUrl}?ac=detail&wd=${encodeURIComponent(title)}`;
-        return axios.get(searchUrl, { timeout: 8000 }).catch(err => null);
+        return axios.get(searchUrl, { timeout: 8000 }).catch(() => null);
     });
 
     const responses = await Promise.all(requests);
@@ -71,14 +72,6 @@ async function fetchFromMultipleCMS(title, type, targetEpisode) {
                         break;
                     }
                 }
-                if (!targetUrl && epList.length >= parseInt(targetEpisode)) {
-                    const fallbackStr = epList[parseInt(targetEpisode) - 1];
-                    if (fallbackStr && fallbackStr.includes('$')) {
-                        const [epName, epUrl] = fallbackStr.split('$');
-                        targetUrl = epUrl;
-                        targetTitle = epName;
-                    }
-                }
             } else {
                 if (epList[0] && epList[0].includes('$')) {
                     const [epName, epUrl] = epList[0].split('$');
@@ -88,26 +81,17 @@ async function fetchFromMultipleCMS(title, type, targetEpisode) {
             }
 
             if (targetUrl && targetUrl.includes('.m3u8')) {
+                // 【核心轉變】不再把原始網址給 Nuvio，而是把網址交給我們的 Render Proxy
+                const proxyUrl = `${APP_URL}/proxy?url=${encodeURIComponent(targetUrl)}`;
+                
                 streams.push({
-                    name: `Nuvio 直連\n${sourceName}`,
+                    name: `中繼加速\n${sourceName}`,
                     title: `${movieData.vod_name} - ${targetTitle}`,
-                    url: targetUrl,
-                    // 【關鍵修復】告訴 Nuvio App 播放時要帶上偽裝標頭，騙過防盜鏈！
-                    behaviorHints: {
-                        notWebReady: true,
-                        proxyHeaders: {
-                            request: {
-                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-                                "Referer": "https://mvffm.net/",
-                                "Origin": "https://mvffm.net"
-                            }
-                        }
-                    }
+                    url: proxyUrl
                 });
             }
         }
     });
-
     return streams;
 }
 
@@ -120,4 +104,68 @@ builder.defineStreamHandler(async ({ type, id }) => {
     return { streams };
 });
 
-serveHTTP(builder.getInterface(), { port: process.env.PORT || 7000 });
+// ==========================================
+// 建立 Express 伺服器與影片代理中繼站
+// ==========================================
+const app = express();
+
+app.use((req, res, next) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    next();
+});
+
+// 這是真正把影片抓給 Nuvio 的中繼站
+app.get('/proxy', async (req, res) => {
+    const targetUrl = req.query.url;
+    if (!targetUrl) return res.status(400).send("No URL");
+
+    console.log(`[代理抓取] 正在為 Nuvio 處理影片: ${targetUrl.split('/').pop()}`);
+
+    try {
+        const isM3U8 = targetUrl.includes(".m3u8");
+        
+        const response = await axios({
+            method: "GET",
+            url: targetUrl,
+            responseType: isM3U8 ? "text" : "stream",
+            headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                "Referer": "https://mvffm.net/"
+            }
+        });
+
+        if (isM3U8) {
+            res.set("Content-Type", "application/vnd.apple.mpegurl");
+            const lines = response.data.split('\n');
+            const baseUrl = targetUrl.substring(0, targetUrl.lastIndexOf('/') + 1);
+            
+            // 將播放清單內的影片網址全部覆寫，強制通過 Render
+            const rewritten = lines.map(line => {
+                const trimmed = line.trim();
+                if (trimmed && !trimmed.startsWith('#')) {
+                    let absoluteUrl = trimmed;
+                    if (!trimmed.startsWith('http')) {
+                        absoluteUrl = trimmed.startsWith('/') ? new URL(trimmed, targetUrl).href : baseUrl + trimmed;
+                    }
+                    return `${APP_URL}/proxy?url=${encodeURIComponent(absoluteUrl)}`;
+                }
+                return line;
+            }).join('\n');
+            
+            res.send(rewritten);
+        } else {
+            // 直接將 .ts 影片檔案串流給 Nuvio
+            res.set("Content-Type", "video/mp2t");
+            response.data.pipe(res);
+        }
+    } catch (err) {
+        console.error("[代理失敗]:", err.message);
+        res.status(500).send("Proxy Error");
+    }
+});
+
+// 掛載 Stremio 外掛
+app.use('/', getRouter(builder.getInterface()));
+
+const port = process.env.PORT || 7000;
+app.listen(port, () => console.log(`Proxy Engine is running on port ${port}`));
