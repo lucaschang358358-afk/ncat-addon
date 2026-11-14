@@ -5,31 +5,16 @@ const axios = require("axios");
 const TMDB_API_KEY = "fda2e44581f4c02ca5be907cd4a82cbd";
 const APP_URL = process.env.RENDER_EXTERNAL_URL || "https://ncat-addon.onrender.com";
 
-// 精選過的高穩定、高連線率黃金 CMS 採集源（剔除會卡死或死鏈的站點）
+// 只保留唯一確定能順暢直連的資源，極大化搜尋與載入速度
 const CMS_APIS = [
-    // --- 頂級主力源（速度最快、穩定度最高）---
-    "https://ikunzyapi.com/api.php/provide/vod/",     // 愛坤源
-    "https://api.olemovapi.com/api.php/provide/vod/",   // 歐樂源
-    "https://suoniapi.com/api.php/provide/vod/",        // 索尼源
-    
-    // --- 龐大資料庫源（片量極多、更新快）---
-    "https://cj.lziapi.com/api.php/provide/vod/",       // 量子源
-    "https://bfzyapi.com/api.php/provide/vod/",       // 暴風源
-    "https://gzyunapi.com/api.php/provide/vod/",       // 光速源
-    "https://ffzyapi.com/api.php/provide/vod/",       // 非凡源
-    "https://kczyapi.com/api.php/provide/vod/",       // 快車源
-    "https://sdzyapi.com/api.php/provide/vod/",       // 神盾源
-    
-    // --- 備用與特規源 ---
-    "https://zy.yilans.org/api.php/provide/vod/",     // 伊蘭源
-    "https://api.wujinapi.me/api.php/provide/vod/"     // 無盡源
-]
+    "https://ikunzyapi.com/api.php/provide/vod/"
+];
 
 const manifest = {
-    id: "org.custom.nuvio.optimized.sources",
-    version: "35.0.0",
-    name: "Nuvio 精選高速多源",
-    description: "過濾無效死鏈，僅保留高效穩定頻道的 Nuvio 專用聚合源",
+    id: "org.custom.nuvio.rapid",
+    version: "18.0.0",
+    name: "Nuvio急速直連",
+    description: "專為 Nuvio 打造的極速直連代理",
     resources: ["stream"],
     types: ["movie", "series"],
     idPrefixes: ["tt"],
@@ -50,66 +35,59 @@ async function getChineseTitle(imdbId, type) {
     }
 }
 
-async function fetchFromOptimizedCMS(title, type, targetEpisode) {
+async function fetchFromMultipleCMS(title, type, targetEpisode) {
     const streams = [];
-    
-    // 平行發送請求，並縮短超時限制，確保不健康的站點不會拖慢整體速度
     const requests = CMS_APIS.map(apiUrl => {
         const searchUrl = `${apiUrl}?ac=detail&wd=${encodeURIComponent(title)}`;
-        return axios.get(searchUrl, { timeout: 5000 }).catch(() => null);
+        return axios.get(searchUrl, { timeout: 8000 }).catch(() => null);
     });
 
     const responses = await Promise.all(requests);
 
-    responses.forEach((response, apiIndex) => {
+    responses.forEach(response => {
         if (!response || !response.data || !response.data.list || response.data.list.length === 0) return;
 
-        const matchedMovies = response.data.list.slice(0, 2);
+        const movieData = response.data.list[0];
+        const sources = (movieData.vod_play_from || "").split('$$$');
+        const urlsGroups = (movieData.vod_play_url || "").split('$$$');
 
-        matchedMovies.forEach(movieData => {
-            const sources = (movieData.vod_play_from || "").split('$$$');
-            const urlsGroups = (movieData.vod_play_url || "").split('$$$');
+        for (let i = 0; i < sources.length; i++) {
+            const sourceName = sources[i];
+            if (!sourceName) continue;
+            
+            const epList = (urlsGroups[i] || "").split('#');
+            let targetUrl = null;
+            let targetTitle = "";
 
-            for (let i = 0; i < sources.length; i++) {
-                const sourceName = sources[i];
-                if (!sourceName) continue;
-                
-                const epList = (urlsGroups[i] || "").split('#');
-                let targetUrl = null;
-                let targetTitle = "";
-
-                if (type === "series" && targetEpisode) {
-                    for (const epStr of epList) {
-                        if (!epStr.includes('$')) continue;
-                        const [epName, epUrl] = epStr.split('$');
-                        const numMatch = epName.match(/\d+/);
-                        if (numMatch && parseInt(numMatch[0]) === parseInt(targetEpisode)) {
-                            targetUrl = epUrl;
-                            targetTitle = epName;
-                            break;
-                        }
-                    }
-                } else {
-                    if (epList[0] && epList[0].includes('$')) {
-                        const [epName, epUrl] = epList[0].split('$');
+            if (type === "series" && targetEpisode) {
+                for (const epStr of epList) {
+                    if (!epStr.includes('$')) continue;
+                    const [epName, epUrl] = epStr.split('$');
+                    const numMatch = epName.match(/\d+/);
+                    if (numMatch && parseInt(numMatch[0]) === parseInt(targetEpisode)) {
                         targetUrl = epUrl;
-                        targetTitle = sourceName;
+                        targetTitle = epName;
+                        break;
                     }
                 }
-
-                // 嚴格過濾：必須包含 m3u8 格式才納入清單
-                if (targetUrl && targetUrl.includes('.m3u8')) {
-                    const proxyUrl = `${APP_URL}/proxy?url=${encodeURIComponent(targetUrl)}`;
-                    streams.push({
-                        name: `精選源 #${apiIndex + 1}\n${sourceName}`,
-                        title: `${movieData.vod_name} - ${targetTitle}`,
-                        url: proxyUrl
-                    });
+            } else {
+                if (epList[0] && epList[0].includes('$')) {
+                    const [epName, epUrl] = epList[0].split('$');
+                    targetUrl = epUrl;
+                    targetTitle = sourceName;
                 }
             }
-        });
-    });
 
+            if (targetUrl && targetUrl.includes('.m3u8')) {
+                const proxyUrl = `${APP_URL}/proxy?url=${encodeURIComponent(targetUrl)}`;
+                streams.push({
+                    name: `極速直連\n${sourceName}`,
+                    title: `${movieData.vod_name} - ${targetTitle}`,
+                    url: proxyUrl
+                });
+            }
+        }
+    });
     return streams;
 }
 
@@ -118,7 +96,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
     const meta = await getChineseTitle(imdbId, type);
     if (!meta) return { streams: [] };
 
-    const streams = await fetchFromOptimizedCMS(meta.title, type, episode);
+    const streams = await fetchFromMultipleCMS(meta.title, type, episode);
     return { streams };
 });
 
@@ -173,4 +151,4 @@ app.get('/proxy', async (req, res) => {
 app.use('/', getRouter(builder.getInterface()));
 
 const port = process.env.PORT || 7000;
-app.listen(port, () => console.log(`Optimized CMS Proxy Engine is running on port ${port}`));
+app.listen(port, () => console.log(`Proxy Engine is running on port ${port}`));
